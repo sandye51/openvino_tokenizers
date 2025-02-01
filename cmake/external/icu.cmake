@@ -14,21 +14,28 @@ set(ICU_SOURCE_DIR  ${THIRD_PARTY_PATH}/icu-src)
 set(ICU_INSTALL_DIR ${THIRD_PARTY_PATH}/icu-install)
 
 if(NOT WIN32)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -std=c++11")
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
+  set(ICU_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -Wno-deprecated-declarations")
+  set(ICU_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -Wno-deprecated-declarations")
 endif()
 
+# openvino::runtime exports _GLIBCXX_USE_CXX11_ABI=0 on CentOS7.
+# It needs to be propagated to every library openvino_tokenizers links with.
+# That prohibits linkage with prebuilt libraries because they aren't compiled with _GLIBCXX_USE_CXX11_ABI=0.
+get_directory_property(OPENVINO_RUNTIME_COMPILE_DEFINITIONS COMPILE_DEFINITIONS)
+
 if(OPENVINO_RUNTIME_COMPILE_DEFINITIONS)
-    foreach(def ${OPENVINO_RUNTIME_COMPILE_DEFINITIONS})
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D${def}")
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D${def}")
-    endforeach()
+  foreach(def IN LISTS OPENVINO_RUNTIME_COMPILE_DEFINITIONS)
+    set(ICU_CXX_FLAGS "${ICU_CXX_FLAGS} -D${def}")
+    set(ICU_C_FLAGS "${ICU_C_FLAGS} -D${def}")
+  endforeach()
 endif()
 
 set(HOST_ENV_CMAKE ${CMAKE_COMMAND} -E env
-        CFLAGS=${CMAKE_C_FLAGS}
-        CXXFLAGS=${CMAKE_CXX_FLAGS}
-        LDFLAGS=${CMAKE_MODULE_LINKER_FLAGS}
+      # CC=${CMAKE_C_COMPILER}
+      # CXX=${CMAKE_CXX_COMPILER}
+      CFLAGS=${ICU_C_FLAGS}
+      CXXFLAGS=${ICU_CXX_FLAGS}
+      LDFLAGS=${CMAKE_MODULE_LINKER_FLAGS}
 )
 
 # ICU supports only Release and Debug build types 
@@ -45,11 +52,12 @@ else()
   endif()
 endif()
 
+set(ICU_SHARED_PREFIX ${CMAKE_SHARED_LIBRARY_PREFIX})
+set(ICU_STATIC_PREFIX ${CMAKE_STATIC_LIBRARY_PREFIX})
+set(ICU_SHARED_SUFFIX ${CMAKE_SHARED_LIBRARY_SUFFIX})
+set(ICU_STATIC_SUFFIX ${CMAKE_STATIC_LIBRARY_SUFFIX})
+
 if(WIN32)
-    set(ICU_SHARED_PREFIX "")
-    set(ICU_STATIC_PREFIX "")
-    set(ICU_SHARED_SUFFIX ".dll")
-    set(ICU_STATIC_SUFFIX ".lib")
     set(ICU_INSTALL_LIB_SUBDIR "lib64")
     set(ICU_INSTALL_BIN_SUBDIR "bin64")
     set(ICU_UC_LIB_NAME "icuuc")
@@ -59,10 +67,6 @@ if(WIN32)
     set(ICU_I18N_SHARED_LIB_NAME "${ICU_I18N_LIB_NAME}${ICU_VERSION}")
     set(ICU_DATA_SHARED_LIB_NAME "${ICU_DATA_LIB_NAME}${ICU_VERSION}")
 else()
-    set(ICU_SHARED_PREFIX ${CMAKE_SHARED_LIBRARY_PREFIX})
-    set(ICU_STATIC_PREFIX ${CMAKE_STATIC_LIBRARY_PREFIX})
-    set(ICU_SHARED_SUFFIX ${CMAKE_SHARED_LIBRARY_SUFFIX})
-    set(ICU_STATIC_SUFFIX ${CMAKE_STATIC_LIBRARY_SUFFIX})
     set(ICU_INSTALL_LIB_SUBDIR "lib")
     set(ICU_INSTALL_BIN_SUBDIR "lib")
     set(ICU_UC_LIB_NAME "icuuc")
@@ -73,15 +77,16 @@ else()
     set(ICU_DATA_SHARED_LIB_NAME ${ICU_DATA_LIB_NAME})
     
     # Calculate the number of cores using CMake
-    execute_process(COMMAND nproc OUTPUT_VARIABLE ICU_JOB_POOL_SIZE)
-    string(STRIP ${ICU_JOB_POOL_SIZE} ICU_JOB_POOL_SIZE)
+    execute_process(COMMAND nproc
+      OUTPUT_VARIABLE ICU_JOB_POOL_SIZE
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
 endif()
 
 set(ICU_INCLUDE_DIRS "${ICU_INSTALL_DIR}/include")
 
-foreach(build_type Release Debug)
+foreach(build_type IN ITEMS Release Debug)
   string(TOUPPER ${build_type} BUILD_TYPE)
-  foreach(icu_target UC I18N DATA)
+  foreach(icu_target IN ITEMS UC I18N DATA)
     if(icu_target STREQUAL "DATA")
       set(lib_postfix ${CMAKE_RELEASE_POSTFIX})
     else()
@@ -132,7 +137,7 @@ elseif(APPLE)
                       --disable-icuio
                       --disable-draft
                       --disable-icu-config
-    BUILD_COMMAND make -j${ICU_JOB_POOL_SIZE} 
+    BUILD_COMMAND make -j${ICU_JOB_POOL_SIZE} VERBOSE=1
     INSTALL_COMMAND make install
     BUILD_BYPRODUCTS ${ICU_LIBRARIES_RELEASE} ${ICU_LIBRARIES_DEBUG}
   )
@@ -155,7 +160,7 @@ else()
                       --disable-icuio
                       --disable-draft
                       --disable-icu-config
-    BUILD_COMMAND make -j${ICU_JOB_POOL_SIZE} 
+    BUILD_COMMAND make -j${ICU_JOB_POOL_SIZE}
     INSTALL_COMMAND make install
     BUILD_BYPRODUCTS ${ICU_LIBRARIES_RELEASE} ${ICU_LIBRARIES_DEBUG}
   )
